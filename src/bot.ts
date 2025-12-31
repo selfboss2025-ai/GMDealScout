@@ -1,0 +1,152 @@
+import { Telegraf, Context } from 'telegraf';
+import { config } from './config';
+import { parseMinersFromText } from './parser';
+import { calculateMinerMetrics, filterAndSortOpportunities } from './economics';
+import { publishAnalysis, sendUserResponse } from './publisher';
+
+export class GoMiningBot {
+  private bot: Telegraf;
+  private userMinRoi: Map<number, number> = new Map();
+
+  constructor() {
+    this.bot = new Telegraf(config.botToken);
+    this.setupHandlers();
+  }
+
+  private setupHandlers(): void {
+    // Comando /start
+    this.bot.command('start', (ctx) => {
+      const message = `
+👋 Benvenuto nel GoMining NFT Analyzer Bot!
+
+Questo bot analizza le opportunità di acquisto di NFT miner su GoMining basandosi su dati che incoli manualmente.
+
+📋 Comandi disponibili:
+/parse - Incolla il testo dal marketplace e analizza gli NFT
+/set_roi <valore> - Imposta la soglia ROI minima (default: 20%)
+/help - Mostra questa guida
+
+📌 Come usare:
+1. Copia il testo dal marketplace secondario di GoMining (app.gomining.com/marketplace)
+2. Usa /parse e incolla il testo
+3. Il bot analizzerà gli NFT e mostrerà le migliori opportunità
+
+💡 Il bot calcola:
+• Prezzo equivalente a 15 W/TH (standard GoMining)
+• Prezzo per TH equivalente
+• Prezzo di riferimento del primary market
+• Spread corretto (% rispetto al primary)
+• ROI dichiarato (se presente)
+
+✅ Vengono mostrate solo le opportunità con spread < 0 (sconto)
+      `;
+      ctx.reply(message);
+    });
+
+    // Comando /help
+    this.bot.command('help', (ctx) => {
+      const message = `
+📚 Guida del Bot
+
+/parse - Analizza il testo incollato
+/set_roi <valore> - Imposta soglia ROI (es: /set_roi 25)
+/start - Mostra il messaggio di benvenuto
+
+📊 Cosa fa il bot:
+1. Estrae hashrate, efficienza, prezzo e ROI dal testo
+2. Calcola il costo per portare ogni NFT a 15 W/TH
+3. Calcola il prezzo equivalente e lo spread rispetto al primary market
+4. Filtra le migliori opportunità (spread < 0)
+5. Pubblica i risultati sul canale
+
+⚙️ Configurazione attuale:
+• Min Hashrate: ${config.minHashrateTh} TH
+• Min ROI: ${config.minRoi}%
+• Max Risultati: ${config.maxResults}
+      `;
+      ctx.reply(message);
+    });
+
+    // Comando /set_roi
+    this.bot.command('set_roi', (ctx) => {
+      const args = ctx.message.text.split(' ');
+      if (args.length < 2) {
+        ctx.reply('Uso: /set_roi <valore>\nEsempio: /set_roi 25');
+        return;
+      }
+
+      const roi = parseInt(args[1], 10);
+      if (isNaN(roi) || roi < 0) {
+        ctx.reply('❌ Valore ROI non valido. Deve essere un numero positivo.');
+        return;
+      }
+
+      this.userMinRoi.set(ctx.from!.id, roi);
+      ctx.reply(`✅ Soglia ROI impostata a ${roi}%`);
+    });
+
+    // Comando /parse
+    this.bot.command('parse', (ctx) => {
+      ctx.reply(
+        '📝 Incolla il testo dal marketplace di GoMining.\n\nIl bot analizzerà gli NFT e mostrerà le migliori opportunità.'
+      );
+    });
+
+    // Handler per il testo incollato
+    this.bot.on('text', async (ctx) => {
+      try {
+        // Ignora i comandi
+        if (ctx.message.text.startsWith('/')) {
+          return;
+        }
+
+        await ctx.reply('⏳ Analizzando i dati...');
+
+        // Parsa il testo
+        const miners = parseMinersFromText(ctx.message.text);
+
+        if (miners.length === 0) {
+          ctx.reply(
+            '❌ Nessun NFT trovato nel testo. Assicurati di incollare il testo corretto dal marketplace.'
+          );
+          return;
+        }
+
+        // Calcola le metriche
+        const metrics = miners.map((miner) => calculateMinerMetrics(miner));
+
+        // Filtra e ordina le opportunità
+        const opportunities = filterAndSortOpportunities(metrics);
+
+        // Invia la risposta all'utente
+        await sendUserResponse(this.bot, ctx.chat.id, opportunities);
+
+        // Pubblica sul canale se ci sono opportunità
+        if (opportunities.length > 0) {
+          await publishAnalysis(this.bot, opportunities);
+          ctx.reply('✅ Analisi pubblicata sul canale!');
+        } else {
+          ctx.reply('ℹ️ Nessuna opportunità trovata con i criteri attuali.');
+        }
+      } catch (error) {
+        console.error('Error processing text:', error);
+        ctx.reply('❌ Errore durante l\'analisi. Riprova con un testo valido.');
+      }
+    });
+
+    // Error handler
+    this.bot.catch((err, ctx) => {
+      console.error('Bot error:', err);
+      ctx.reply('❌ Si è verificato un errore. Riprova più tardi.');
+    });
+  }
+
+  public async start(): Promise<void> {
+    console.log('🤖 GoMining NFT Analyzer Bot avviato...');
+    await this.bot.launch();
+
+    // Graceful shutdown
+    process.once('SIGINT', () => this.bot.stop('SIGINT'));
+    process.once('SIGTERM', () => this.bot.stop('SIGTERM'));
+  }
+}
