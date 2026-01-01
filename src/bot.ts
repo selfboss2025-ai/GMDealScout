@@ -4,9 +4,73 @@ import { parseMinersFromText } from './parser';
 import { calculateMinerMetrics, filterAndSortOpportunities } from './economics';
 import { publishAnalysis, sendUserResponse } from './publisher';
 
+// Lista utenti autorizzati (aggiungi i tuoi Telegram ID)
+const AUTHORIZED_USERS = [
+  // 123456789,  // Aggiungi qui i tuoi Telegram ID
+  // 987654321,  // Esempio: ID di altri utenti autorizzati
+];
+
 export class GoMiningBot {
   private bot: Telegraf;
   private userMinRoi: Map<number, number> = new Map();
+  private rateLimiter: Map<number, number[]> = new Map(); // Rate limiting
+
+  constructor() {
+    this.bot = new Telegraf(config.botToken);
+    this.setupHandlers();
+  }
+
+  /**
+   * Verifica se l'utente è autorizzato
+   */
+  private isAuthorized(userId: number): boolean {
+    // Se la whitelist è vuota, permetti a tutti (per retrocompatibilità)
+    if (AUTHORIZED_USERS.length === 0) return true;
+    return AUTHORIZED_USERS.includes(userId);
+  }
+
+  /**
+   * Rate limiting: max 5 richieste per minuto per utente
+   */
+  private checkRateLimit(userId: number): boolean {
+    const now = Date.now();
+    const userRequests = this.rateLimiter.get(userId) || [];
+    
+    // Rimuovi richieste più vecchie di 1 minuto
+    const recentRequests = userRequests.filter(time => now - time < 60000);
+    
+    if (recentRequests.length >= 5) {
+      return false; // Rate limit superato
+    }
+    
+    recentRequests.push(now);
+    this.rateLimiter.set(userId, recentRequests);
+    return true;
+  }
+
+  /**
+   * Middleware di sicurezza
+   */
+  private securityCheck(ctx: Context): boolean {
+    const userId = ctx.from?.id;
+    if (!userId) return false;
+
+    // Verifica autorizzazione
+    if (!this.isAuthorized(userId)) {
+      ctx.reply('❌ Non sei autorizzato a usare questo bot.');
+      console.log(`Unauthorized access attempt from user ${userId} (@${ctx.from?.username})`);
+      return false;
+    }
+
+    // Verifica rate limiting
+    if (!this.checkRateLimit(userId)) {
+      ctx.reply('⏳ Troppe richieste. Riprova tra un minuto.');
+      console.log(`Rate limit exceeded for user ${userId} (@${ctx.from?.username})`);
+      return false;
+    }
+
+    return true;
+  }
 
   constructor() {
     this.bot = new Telegraf(config.botToken);
@@ -16,6 +80,8 @@ export class GoMiningBot {
   private setupHandlers(): void {
     // Comando /start
     this.bot.command('start', (ctx) => {
+      if (!this.securityCheck(ctx)) return;
+
       const message = `
 👋 Benvenuto nel GoMining NFT Analyzer Bot!
 
@@ -54,6 +120,8 @@ Questo bot analizza le opportunità di acquisto di NFT miner su GoMining basando
 
     // Comando /help
     this.bot.command('help', (ctx) => {
+      if (!this.securityCheck(ctx)) return;
+
       const message = `
 📚 Guida del Bot
 
@@ -78,6 +146,8 @@ Questo bot analizza le opportunità di acquisto di NFT miner su GoMining basando
 
     // Comando /set_roi
     this.bot.command('set_roi', (ctx) => {
+      if (!this.securityCheck(ctx)) return;
+
       const args = ctx.message.text.split(' ');
       if (args.length < 2) {
         ctx.reply('Uso: /set_roi <valore>\nEsempio: /set_roi 25');
@@ -96,6 +166,8 @@ Questo bot analizza le opportunità di acquisto di NFT miner su GoMining basando
 
     // Comando /parse
     this.bot.command('parse', (ctx) => {
+      if (!this.securityCheck(ctx)) return;
+
       ctx.reply(
         '📝 Incolla il testo dal marketplace di GoMining.\n\nIl bot analizzerà gli NFT e mostrerà le migliori opportunità.'
       );
@@ -207,9 +279,7 @@ Questo bot analizza le opportunità di acquisto di NFT miner su GoMining basando
 
         // Pubblica sul canale se ci sono opportunità
         if (opportunities.length > 0) {
-          const username = ctx.from?.username || `User${ctx.from?.id}`;
-          console.log('Publishing analysis by user:', username, 'ID:', ctx.from?.id);
-          await publishAnalysis(this.bot, opportunities, username);
+          await publishAnalysis(this.bot, opportunities);
           ctx.reply(`✅ Analisi completata! ${opportunities.length} opportunità pubblicate sul canale.`, {
             reply_markup: {
               keyboard: [
