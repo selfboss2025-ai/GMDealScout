@@ -1,25 +1,21 @@
 FROM node:20.19.6-alpine
 
+# Installa TypeScript globalmente
+RUN npm install -g typescript ts-node
+
 WORKDIR /app
 
 # Copia package files
 COPY package*.json ./
-COPY tsconfig.json ./
 
 # Installa dipendenze
 RUN npm install
 
-# Copia il resto del codice
-COPY src ./src
-
-# Compila TypeScript a JavaScript
-RUN npm run build && ls -la dist/
-
-# Rimuovi i file sorgente TypeScript per evitare confusione
-RUN rm -rf src
+# Copia tutto il codice
+COPY . .
 
 # Espone la porta
 EXPOSE 3000
 
-# Avvia il bot compilato
-CMD ["node", "dist/index.js"]
+# Avvia direttamente con ts-node
+CMD ["ts-node", "src/index.ts"]
