@@ -1,0 +1,13 @@
+node_modules
+.env
+logs
+.DS_Store
+.ts-node
+dist
+*.log
+.pm2
+ecosystem.config.js
+.git
+.gitignore
+README.md
+tsconfig.json
