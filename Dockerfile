@@ -10,10 +10,13 @@ COPY tsconfig.json ./
 RUN npm install
 
 # Copia il resto del codice
-COPY . .
+COPY src ./src
 
 # Compila TypeScript a JavaScript
-RUN npm run build
+RUN npm run build && ls -la dist/
+
+# Rimuovi i file sorgente TypeScript per evitare confusione
+RUN rm -rf src
 
 # Espone la porta
 EXPOSE 3000
