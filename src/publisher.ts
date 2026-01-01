@@ -82,6 +82,8 @@ function generateAnalysisMessage(opportunities: MinerMetrics[], username?: strin
   const now = new Date();
   const dateStr = now.toLocaleString('it-IT');
 
+  console.log('Generating message with username:', username); // Debug
+
   let message = `<b>🔍 ANALISI GOMINING</b>\n`;
   message += `<i>${dateStr}</i>\n`;
   if (username) {

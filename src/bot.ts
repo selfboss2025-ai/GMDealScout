@@ -208,6 +208,7 @@ Questo bot analizza le opportunità di acquisto di NFT miner su GoMining basando
         // Pubblica sul canale se ci sono opportunità
         if (opportunities.length > 0) {
           const username = ctx.from?.username || `User${ctx.from?.id}`;
+          console.log('Publishing analysis by user:', username, 'ID:', ctx.from?.id);
           await publishAnalysis(this.bot, opportunities, username);
           ctx.reply(`✅ Analisi completata! ${opportunities.length} opportunità pubblicate sul canale.`, {
             reply_markup: {
