@@ -4,15 +4,19 @@ WORKDIR /app
 
 # Copia package files
 COPY package*.json ./
+COPY tsconfig.json ./
 
-# Installa dipendenze incluso ts-node
+# Installa dipendenze
 RUN npm install
 
 # Copia il resto del codice
 COPY . .
 
-# Espone la porta (anche se il bot non la usa)
+# Compila TypeScript a JavaScript
+RUN npm run build
+
+# Espone la porta
 EXPOSE 3000
 
-# Avvia il bot con ts-node
-CMD ["npx", "ts-node", "src/index.ts"]
+# Avvia il bot compilato
+CMD ["node", "dist/index.js"]
