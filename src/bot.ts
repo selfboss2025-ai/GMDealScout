@@ -5,7 +5,7 @@ import { calculateMinerMetrics, filterAndSortOpportunities } from './economics';
 import { publishAnalysis, sendUserResponse } from './publisher';
 
 // ID dell'admin del bot (sostituisci con il tuo Telegram ID)
-const ADMIN_USER_ID = 123456789; // CAMBIA QUESTO CON IL TUO ID TELEGRAM
+const ADMIN_USER_ID = 112983744; // ID di Luca
 
 export class GoMiningBot {
   private bot: Telegraf;
