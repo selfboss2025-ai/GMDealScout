@@ -78,12 +78,15 @@ function formatMinerAnalysis(metric: MinerMetrics, index: number): string {
 /**
  * Genera il messaggio completo di analisi
  */
-function generateAnalysisMessage(opportunities: MinerMetrics[]): string {
+function generateAnalysisMessage(opportunities: MinerMetrics[], username?: string): string {
   const now = new Date();
   const dateStr = now.toLocaleString('it-IT');
 
   let message = `<b>🔍 ANALISI GOMINING</b>\n`;
   message += `<i>${dateStr}</i>\n`;
+  if (username) {
+    message += `<b>👤 Analisi di:</b> @${username}\n`;
+  }
   message += `${'═'.repeat(40)}\n\n`;
 
   if (opportunities.length === 0) {
@@ -111,7 +114,8 @@ function generateAnalysisMessage(opportunities: MinerMetrics[]): string {
  */
 export async function publishAnalysis(
   bot: Telegraf,
-  opportunities: MinerMetrics[]
+  opportunities: MinerMetrics[],
+  username?: string
 ): Promise<void> {
   // Pubblica solo se ci sono opportunità
   if (opportunities.length === 0) {
@@ -119,13 +123,13 @@ export async function publishAnalysis(
     return;
   }
 
-  const message = generateAnalysisMessage(opportunities);
+  const message = generateAnalysisMessage(opportunities, username);
 
   try {
     await bot.telegram.sendMessage(config.channelChatId, message, {
       parse_mode: 'HTML',
     });
-    console.log(`Published ${opportunities.length} opportunities to channel`);
+    console.log(`Published ${opportunities.length} opportunities to channel by ${username || 'unknown'}`);
   } catch (error) {
     console.error('Error publishing to channel:', error);
     throw error;
