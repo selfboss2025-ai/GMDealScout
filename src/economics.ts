@@ -2,15 +2,33 @@ import { Miner, MinerMetrics } from './types';
 import { config } from './config';
 
 const STANDARD_EFFICIENCY_W_PER_TH = 15;
-const UPGRADE_COST_PER_W_PER_TH = 1; // USD per TH per W
 
 /**
  * Calcola il costo per portare un miner a 15 W/TH
- * Formula: hashrate * max(0, efficienza - 15) * 1 USD/TH/W
+ * Usa i prezzi per step dalla tabella GoMining:
+ * - 29+ W/TH: $0.72 per TH
+ * - 21-28 W/TH: $1.53 per TH
+ * - 16-20 W/TH: $1.14 per TH
+ * - ≤15 W/TH: $0 (già al target)
  */
-function calculateUpgradeCost(hashrateTh: number, efficiencyWPerTh: number): number {
-  const wDifference = Math.max(0, efficiencyWPerTh - STANDARD_EFFICIENCY_W_PER_TH);
-  return hashrateTh * wDifference * UPGRADE_COST_PER_W_PER_TH;
+function calculateUpgradeCost(currentWth: number, hashrateTh: number): number {
+  if (currentWth <= STANDARD_EFFICIENCY_W_PER_TH) return 0;
+
+  let totalCostPerTh = 0;
+  const steps = Math.ceil(currentWth) - STANDARD_EFFICIENCY_W_PER_TH;
+
+  for (let i = 1; i <= steps; i++) {
+    const w = Math.ceil(currentWth) - i + 1;
+    if (w >= 29) {
+      totalCostPerTh += 0.72;
+    } else if (w >= 21) {
+      totalCostPerTh += 1.53;
+    } else if (w >= 16) {
+      totalCostPerTh += 1.14;
+    }
+  }
+
+  return totalCostPerTh * hashrateTh;
 }
 
 /**
@@ -28,13 +46,57 @@ function calculateEquivalentPricePerTh(equivalentPrice: number, hashrateTh: numb
 }
 
 /**
- * Ottiene il prezzo di riferimento del primary market usando interpolazione logaritmica
- * Formula: 21.61 - 0.558 * ln(TH)
- * Basato su dati reali del primary market GoMining
+ * Ottiene il prezzo di riferimento del primary market usando la tabella ufficiale GoMining
  */
 export function getPrimaryPricePerTh(hashrateTh: number): number {
-  const th = Math.max(1, hashrateTh); // Evita log(0)
-  return 21.61 - 0.558 * Math.log(th);
+  // Tabella prezzi ufficiale GoMining (TH/s -> Prezzo per TH)
+  const priceTable = [
+    { th: 1, pricePerTh: 22.99 },
+    { th: 2, pricePerTh: 22.495 },
+    { th: 4, pricePerTh: 22.00 },
+    { th: 8, pricePerTh: 21.75 },
+    { th: 16, pricePerTh: 21.50 },
+    { th: 32, pricePerTh: 21.28 },
+    { th: 48, pricePerTh: 21.06 },
+    { th: 64, pricePerTh: 20.86 },
+    { th: 96, pricePerTh: 20.65 },
+    { th: 128, pricePerTh: 20.44 },
+    { th: 192, pricePerTh: 20.23 },
+    { th: 256, pricePerTh: 20.03 },
+    { th: 384, pricePerTh: 19.83 },
+    { th: 512, pricePerTh: 19.63 },
+    { th: 768, pricePerTh: 19.44 },
+    { th: 1024, pricePerTh: 19.25 },
+    { th: 1536, pricePerTh: 19.05 },
+    { th: 2560, pricePerTh: 18.86 },
+    { th: 3584, pricePerTh: 18.68 },
+    { th: 5000, pricePerTh: 18.49 },
+  ];
+
+  // Trova il prezzo esatto o interpola tra due valori
+  for (let i = 0; i < priceTable.length; i++) {
+    const current = priceTable[i];
+    
+    // Se troviamo il valore esatto
+    if (current.th === hashrateTh) {
+      return current.pricePerTh;
+    }
+    
+    // Se il valore è minore del primo, usa il primo
+    if (i === 0 && hashrateTh < current.th) {
+      return current.pricePerTh;
+    }
+    
+    // Se il valore è tra due punti, interpola
+    if (i > 0 && hashrateTh < current.th) {
+      const prev = priceTable[i - 1];
+      const ratio = (hashrateTh - prev.th) / (current.th - prev.th);
+      return prev.pricePerTh + ratio * (current.pricePerTh - prev.pricePerTh);
+    }
+  }
+  
+  // Se il valore è maggiore dell'ultimo, usa l'ultimo
+  return priceTable[priceTable.length - 1].pricePerTh;
 }
 
 /**
@@ -49,7 +111,7 @@ function calculateSpreadPct(equivalentPricePerTh: number, primaryPricePerTh: num
  * Calcola tutte le metriche economiche per un miner
  */
 export function calculateMinerMetrics(miner: Miner): MinerMetrics {
-  const upgradeCost = calculateUpgradeCost(miner.hashrateTh, miner.efficiencyWPerTh);
+  const upgradeCost = calculateUpgradeCost(miner.efficiencyWPerTh, miner.hashrateTh);
   const equivalentPrice = calculateEquivalentPrice(miner.priceUsd, upgradeCost);
   const equivalentPricePerTh = calculateEquivalentPricePerTh(equivalentPrice, miner.hashrateTh);
   const primaryPricePerTh = getPrimaryPricePerTh(miner.hashrateTh);

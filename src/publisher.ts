@@ -22,22 +22,54 @@ function formatPrice(price: number): string {
 function formatMinerAnalysis(metric: MinerMetrics, index: number): string {
   const { miner, upgradeCost, equivalentPricePerTh, primaryPricePerTh, spreadPct } = metric;
 
-  const spreadEmoji = spreadPct < -10 ? '🟢' : spreadPct < 0 ? '🟡' : '🔴';
-  const spreadLabel = spreadPct < 0 ? 'OTTIMA OCCASIONE!' : 'NON conveniente';
-
-  let analysis = `${index}. 🔹 #${miner.id}\n`;
-  analysis += `   • ${formatNumber(miner.hashrateTh)} TH | ${formatNumber(miner.efficiencyWPerTh)} W/TH`;
-
-  if (upgradeCost > 0) {
-    analysis += ` → (upgrade: +${formatPrice(upgradeCost)})`;
+  // Calcola le stelle in base allo sconto (spread negativo)
+  let stars = '⭐';
+  let rating = '';
+  
+  if (spreadPct <= -20) {
+    stars = '⭐⭐⭐⭐⭐';
+    rating = 'Eccezionale!';
+  } else if (spreadPct <= -10) {
+    stars = '⭐⭐⭐⭐';
+    rating = 'Ottimo affare';
+  } else if (spreadPct <= -5) {
+    stars = '⭐⭐⭐';
+    rating = 'Buona occasione';
+  } else if (spreadPct <= -1) {
+    stars = '⭐⭐';
+    rating = 'Conveniente';
+  } else if (spreadPct < 0) {
+    stars = '⭐';
+    rating = 'Leggermente scontato';
+  } else {
+    stars = '❌';
+    rating = 'Non conveniente';
   }
 
-  analysis += `\n   • Prezzo equivalente: ${formatPrice(equivalentPricePerTh)}/TH\n`;
-  analysis += `   • Primary reference (${formatNumber(miner.hashrateTh)} TH): ${formatPrice(primaryPricePerTh)}/TH\n`;
-  analysis += `   ${spreadEmoji} Spread: ${spreadPct > 0 ? '+' : ''}${formatNumber(spreadPct)}% → ${spreadLabel}`;
+  let analysis = `${index}. 🔹 <b>Miner #${miner.id}</b>\n`;
+  analysis += `   <b>Specifiche:</b>\n`;
+  analysis += `   • Potenza: ${formatNumber(miner.hashrateTh)} TH\n`;
+  analysis += `   • Efficienza attuale: ${formatNumber(miner.efficiencyWPerTh)} W/TH\n`;
+  
+  analysis += `\n   <b>💰 Prezzo Marketplace:</b>\n`;
+  analysis += `   • Prezzo totale: ${formatPrice(miner.priceUsd)}\n`;
+  analysis += `   • Prezzo per TH: ${formatPrice(miner.pricePerThUsd)}/TH\n`;
+  
+  analysis += `\n   <b>🔧 Costo per portare a 15 W/TH:</b>\n`;
+  if (upgradeCost > 0) {
+    analysis += `   ${formatPrice(upgradeCost)} totali`;
+  } else {
+    analysis += `   ✅ Nessun costo (già a 15 W/TH)`;
+  }
+
+  analysis += `\n\n   <b>📊 Prezzo Equivalente (dopo upgrade):</b>\n`;
+  analysis += `   • ${formatPrice(equivalentPricePerTh)}/TH\n`;
+  analysis += `   • Prezzo di mercato primario: ${formatPrice(primaryPricePerTh)}/TH\n`;
+  analysis += `   ${stars} <b>${rating}</b>\n`;
+  analysis += `   Sconto: ${spreadPct > 0 ? '+' : ''}${formatNumber(spreadPct)}%`;
 
   if (miner.roi) {
-    analysis += `\n   • ROI dichiarato: ${formatNumber(miner.roi)}%`;
+    analysis += `\n\n   <b>ROI dichiarato:</b> ${formatNumber(miner.roi)}%`;
   }
 
   return analysis;
@@ -50,8 +82,9 @@ function generateAnalysisMessage(opportunities: MinerMetrics[]): string {
   const now = new Date();
   const dateStr = now.toLocaleString('it-IT');
 
-  let message = `🔍 ANALISI GOMINING — ${dateStr}\n`;
-  message += `${'='.repeat(40)}\n\n`;
+  let message = `<b>🔍 ANALISI GOMINING</b>\n`;
+  message += `<i>${dateStr}</i>\n`;
+  message += `${'═'.repeat(40)}\n\n`;
 
   if (opportunities.length === 0) {
     message += '❌ Nessuna opportunità trovata con i criteri attuali.\n';
@@ -60,11 +93,15 @@ function generateAnalysisMessage(opportunities: MinerMetrics[]): string {
 
   opportunities.forEach((metric, index) => {
     message += formatMinerAnalysis(metric, index + 1);
-    message += '\n\n';
+    if (index < opportunities.length - 1) {
+      message += '\n\n' + '─'.repeat(40) + '\n\n';
+    } else {
+      message += '\n\n';
+    }
   });
 
-  message += `${'='.repeat(40)}\n`;
-  message += `📊 Totale opportunità: ${opportunities.length}`;
+  message += `${'═'.repeat(40)}\n`;
+  message += `<b>📊 Totale opportunità: ${opportunities.length}</b>`;
 
   return message;
 }

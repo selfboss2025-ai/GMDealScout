@@ -7,21 +7,25 @@ import { Miner } from './types';
 export function parseMinersFromText(text: string): Miner[] {
   const miners: Miner[] = [];
 
-  // Dividi il testo in blocchi separati (ogni miner è un blocco)
-  // Cerchiamo pattern come "177 TH" o "163.22 TH" per identificare i blocchi
-  const blocks = text.split(/\n\n+/);
+  // Dividi il testo usando il pattern "miner" come separatore
+  const blocks = text.split(/miner/i);
+  
+  // Rimuovi il primo elemento se vuoto (prima del primo "miner")
+  if (blocks[0].trim() === '') {
+    blocks.shift();
+  }
 
   for (const block of blocks) {
     if (!block.trim()) continue;
 
     try {
-      const miner = parseMinerBlock(block);
+      const miner = parseMinerBlock('miner' + block); // Aggiungi "miner" all'inizio
       if (miner) {
         miners.push(miner);
       }
     } catch (error) {
       // Ignora blocchi che non possono essere parsati
-      console.error('Error parsing block:', error);
+      console.error('Error parsing block:', block.substring(0, 100), error);
     }
   }
 
@@ -32,48 +36,49 @@ export function parseMinersFromText(text: string): Miner[] {
  * Parsa un singolo blocco di testo per estrarre i dati di un miner
  */
 function parseMinerBlock(block: string): Miner | null {
-  // Estrai hashrate (es. "177 TH" o "163.22 TH")
+  console.log('Parsing block:', block.substring(0, 200)); // Debug
+
+  // Estrai ID NFT (es. "#7717")
+  const idMatch = block.match(/#(\d+)/);
+  if (!idMatch) return null;
+  const id = idMatch[1];
+
+  // Estrai hashrate (es. "768 TH") - cerca il primo numero seguito da TH
   const hashrateMatch = block.match(/(\d+(?:[.,]\d+)?)\s*TH/i);
   if (!hashrateMatch) return null;
   const hashrateTh = parseFloat(hashrateMatch[1].replace(',', '.'));
 
-  // Estrai efficienza (es. "28 W/TH" o "16 W/TH")
+  // Validazione: l'hashrate deve essere ragionevole
+  if (hashrateTh <= 0 || hashrateTh > 5000) return null;
+
+  // Estrai efficienza (es. "35 W/TH") - cerca il numero seguito da W/TH
   const efficiencyMatch = block.match(/(\d+(?:[.,]\d+)?)\s*W\/TH/i);
   if (!efficiencyMatch) return null;
   const efficiencyWPerTh = parseFloat(efficiencyMatch[1].replace(',', '.'));
 
-  // Estrai prezzo in USD (es. "$1,366.59" o "$1366.59")
-  const priceMatch = block.match(/\$\s*(\d+(?:[.,]\d+)?)/);
-  if (!priceMatch) return null;
-  const priceUsd = parseFloat(priceMatch[1].replace(',', '.'));
+  // Estrai prezzo per TH (es. "$8.71 / TH") - più specifico
+  const pricePerThMatch = block.match(/\$(\d+(?:[.,]\d+)?)\s*\/\s*TH/i);
+  if (!pricePerThMatch) return null;
+  const pricePerThUsd = parseFloat(pricePerThMatch[1].replace(',', '.'));
 
-  // Estrai prezzo per TH (es. "$7.72 / TH" o "$7.72/TH")
-  const pricePerThMatch = block.match(/\$\s*(\d+(?:[.,]\d+)?)\s*\/\s*TH/i);
-  let pricePerThUsd = 0;
-  if (pricePerThMatch) {
-    pricePerThUsd = parseFloat(pricePerThMatch[1].replace(',', '.'));
-  } else {
-    // Se non trovato, calcola dal prezzo totale e hashrate
-    pricePerThUsd = priceUsd / hashrateTh;
-  }
+  // Calcola prezzo totale dal prezzo per TH e hashrate
+  const priceUsd = pricePerThUsd * hashrateTh;
 
-  // Estrai ROI (opzionale, es. "ROI\n27.43%" o "ROI 27.43%")
+  // Estrai ROI (opzionale, es. "ROI29.29%")
   let roi: number | undefined;
-  const roiMatch = block.match(/ROI[:\s]*(\d+(?:[.,]\d+)?)\s*%/i);
+  const roiMatch = block.match(/ROI\s*(\d+(?:[.,]\d+)?)\s*%/i);
   if (roiMatch) {
     roi = parseFloat(roiMatch[1].replace(',', '.'));
   }
 
-  // Estrai ID NFT (es. "#7128")
-  const idMatch = block.match(/#(\d+)/);
-  const id = idMatch ? idMatch[1] : `UNKNOWN_${Date.now()}`;
+  console.log('Parsed:', { id, hashrateTh, efficiencyWPerTh, priceUsd, pricePerThUsd, roi }); // Debug
 
   return {
     id,
     hashrateTh,
     efficiencyWPerTh,
     priceUsd,
-    pricePerThUsd,
+    pricePerThUsd: pricePerThUsd,
     roi,
   };
 }

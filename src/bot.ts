@@ -40,7 +40,16 @@ Questo bot analizza le opportunità di acquisto di NFT miner su GoMining basando
 
 ✅ Vengono mostrate solo le opportunità con spread < 0 (sconto)
       `;
-      ctx.reply(message);
+      ctx.reply(message, {
+        reply_markup: {
+          keyboard: [
+            [{ text: '📝 Analizza NFT' }, { text: '⚙️ Imposta ROI' }],
+            [{ text: '📚 Aiuto' }],
+          ],
+          resize_keyboard: true,
+          one_time_keyboard: false,
+        },
+      });
     });
 
     // Comando /help
@@ -100,6 +109,74 @@ Questo bot analizza le opportunità di acquisto di NFT miner su GoMining basando
           return;
         }
 
+        // Gestisci i bottoni
+        if (ctx.message.text === '📝 Analizza NFT') {
+          ctx.reply(
+            '📝 Incolla il testo dal marketplace di GoMining.\n\nIl bot analizzerà gli NFT e mostrerà le migliori opportunità.'
+          );
+          return;
+        }
+
+        if (ctx.message.text === '⚙️ Imposta ROI') {
+          ctx.reply('Scrivi il valore ROI desiderato (es: 25)', {
+            reply_markup: {
+              keyboard: [
+                [{ text: '📝 Analizza NFT' }, { text: '⚙️ Imposta ROI' }],
+                [{ text: '📚 Aiuto' }],
+              ],
+              resize_keyboard: true,
+              one_time_keyboard: false,
+            },
+          });
+          this.userMinRoi.set(ctx.from!.id, -1); // Flag per aspettare il valore
+          return;
+        }
+
+        if (ctx.message.text === '📚 Aiuto') {
+          const message = `
+📚 Guida del Bot
+
+/parse - Analizza il testo incollato
+/set_roi <valore> - Imposta soglia ROI (es: /set_roi 25)
+/start - Mostra il messaggio di benvenuto
+
+📊 Cosa fa il bot:
+1. Estrae hashrate, efficienza, prezzo e ROI dal testo
+2. Calcola il costo per portare ogni NFT a 15 W/TH
+3. Calcola il prezzo equivalente e lo spread rispetto al primary market
+4. Filtra le migliori opportunità (spread < 0)
+5. Pubblica i risultati sul canale
+
+⚙️ Configurazione attuale:
+• Min Hashrate: ${config.minHashrateTh} TH
+• Min ROI: ${config.minRoi}%
+• Max Risultati: ${config.maxResults}
+          `;
+          ctx.reply(message);
+          return;
+        }
+
+        // Se l'utente sta impostando il ROI
+        if (this.userMinRoi.get(ctx.from!.id) === -1) {
+          const roi = parseInt(ctx.message.text, 10);
+          if (isNaN(roi) || roi < 0) {
+            ctx.reply('❌ Valore ROI non valido. Deve essere un numero positivo.');
+            return;
+          }
+          this.userMinRoi.set(ctx.from!.id, roi);
+          ctx.reply(`✅ Soglia ROI impostata a ${roi}%`, {
+            reply_markup: {
+              keyboard: [
+                [{ text: '📝 Analizza NFT' }, { text: '⚙️ Imposta ROI' }],
+                [{ text: '📚 Aiuto' }],
+              ],
+              resize_keyboard: true,
+              one_time_keyboard: false,
+            },
+          });
+          return;
+        }
+
         await ctx.reply('⏳ Analizzando i dati...');
 
         // Parsa il testo
@@ -107,7 +184,17 @@ Questo bot analizza le opportunità di acquisto di NFT miner su GoMining basando
 
         if (miners.length === 0) {
           ctx.reply(
-            '❌ Nessun NFT trovato nel testo. Assicurati di incollare il testo corretto dal marketplace.'
+            '❌ Nessun NFT trovato nel testo. Assicurati di incollare il testo corretto dal marketplace.',
+            {
+              reply_markup: {
+                keyboard: [
+                  [{ text: '📝 Analizza NFT' }, { text: '⚙️ Imposta ROI' }],
+                  [{ text: '📚 Aiuto' }],
+                ],
+                resize_keyboard: true,
+                one_time_keyboard: false,
+              },
+            }
           );
           return;
         }
@@ -118,15 +205,30 @@ Questo bot analizza le opportunità di acquisto di NFT miner su GoMining basando
         // Filtra e ordina le opportunità
         const opportunities = filterAndSortOpportunities(metrics);
 
-        // Invia la risposta all'utente
-        await sendUserResponse(this.bot, ctx.chat.id, opportunities);
-
         // Pubblica sul canale se ci sono opportunità
         if (opportunities.length > 0) {
           await publishAnalysis(this.bot, opportunities);
-          ctx.reply('✅ Analisi pubblicata sul canale!');
+          ctx.reply(`✅ Analisi completata! ${opportunities.length} opportunità pubblicate sul canale.`, {
+            reply_markup: {
+              keyboard: [
+                [{ text: '📝 Analizza NFT' }, { text: '⚙️ Imposta ROI' }],
+                [{ text: '📚 Aiuto' }],
+              ],
+              resize_keyboard: true,
+              one_time_keyboard: false,
+            },
+          });
         } else {
-          ctx.reply('ℹ️ Nessuna opportunità trovata con i criteri attuali.');
+          ctx.reply('ℹ️ Nessuna opportunità trovata con i criteri attuali.', {
+            reply_markup: {
+              keyboard: [
+                [{ text: '📝 Analizza NFT' }, { text: '⚙️ Imposta ROI' }],
+                [{ text: '📚 Aiuto' }],
+              ],
+              resize_keyboard: true,
+              one_time_keyboard: false,
+            },
+          });
         }
       } catch (error) {
         console.error('Error processing text:', error);
