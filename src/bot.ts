@@ -4,16 +4,21 @@ import { parseMinersFromText } from './parser';
 import { calculateMinerMetrics, filterAndSortOpportunities } from './economics';
 import { publishAnalysis, sendUserResponse } from './publisher';
 
-// Lista utenti autorizzati (aggiungi i tuoi Telegram ID)
-const AUTHORIZED_USERS = [
-  // 123456789,  // Aggiungi qui i tuoi Telegram ID
-  // 987654321,  // Esempio: ID di altri utenti autorizzati
-];
+// ID dell'admin del bot (sostituisci con il tuo Telegram ID)
+const ADMIN_USER_ID = 123456789; // CAMBIA QUESTO CON IL TUO ID TELEGRAM
 
 export class GoMiningBot {
   private bot: Telegraf;
   private userMinRoi: Map<number, number> = new Map();
-  private rateLimiter: Map<number, number[]> = new Map(); // Rate limiting
+  private rateLimiter: Map<number, number[]> = new Map();
+  private activityLog: Array<{
+    timestamp: Date;
+    userId: number;
+    username?: string;
+    firstName?: string;
+    action: string;
+    details?: string;
+  }> = [];
 
   constructor() {
     this.bot = new Telegraf(config.botToken);
@@ -21,12 +26,27 @@ export class GoMiningBot {
   }
 
   /**
-   * Verifica se l'utente è autorizzato
+   * Registra l'attività dell'utente
    */
-  private isAuthorized(userId: number): boolean {
-    // Se la whitelist è vuota, permetti a tutti (per retrocompatibilità)
-    if (AUTHORIZED_USERS.length === 0) return true;
-    return AUTHORIZED_USERS.includes(userId);
+  private logActivity(ctx: Context, action: string, details?: string): void {
+    const logEntry = {
+      timestamp: new Date(),
+      userId: ctx.from!.id,
+      username: ctx.from!.username,
+      firstName: ctx.from!.first_name,
+      action,
+      details
+    };
+    
+    this.activityLog.push(logEntry);
+    
+    // Mantieni solo gli ultimi 100 log per evitare memory leak
+    if (this.activityLog.length > 100) {
+      this.activityLog.shift();
+    }
+    
+    // Log in console per Northflank
+    console.log(`[${logEntry.timestamp.toISOString()}] User ${logEntry.userId} (@${logEntry.username}) - ${action}${details ? `: ${details}` : ''}`);
   }
 
   /**
@@ -48,39 +68,57 @@ export class GoMiningBot {
     return true;
   }
 
-  /**
-   * Middleware di sicurezza
-   */
-  private securityCheck(ctx: Context): boolean {
-    const userId = ctx.from?.id;
-    if (!userId) return false;
-
-    // Verifica autorizzazione
-    if (!this.isAuthorized(userId)) {
-      ctx.reply('❌ Non sei autorizzato a usare questo bot.');
-      console.log(`Unauthorized access attempt from user ${userId} (@${ctx.from?.username})`);
-      return false;
-    }
-
-    // Verifica rate limiting
-    if (!this.checkRateLimit(userId)) {
-      ctx.reply('⏳ Troppe richieste. Riprova tra un minuto.');
-      console.log(`Rate limit exceeded for user ${userId} (@${ctx.from?.username})`);
-      return false;
-    }
-
-    return true;
-  }
-
-  constructor() {
-    this.bot = new Telegraf(config.botToken);
-    this.setupHandlers();
-  }
-
   private setupHandlers(): void {
+    // Comando ADMIN - Solo per l'admin del bot
+    this.bot.command('admin', (ctx) => {
+      if (ctx.from!.id !== ADMIN_USER_ID) {
+        this.logActivity(ctx, 'UNAUTHORIZED_ADMIN_ACCESS');
+        return; // Ignora silenziosamente
+      }
+
+      this.logActivity(ctx, 'ADMIN_COMMAND');
+
+      const now = new Date();
+      const last24h = this.activityLog.filter(log => 
+        now.getTime() - log.timestamp.getTime() < 24 * 60 * 60 * 1000
+      );
+
+      let report = `🔒 <b>ADMIN REPORT</b>\n`;
+      report += `📅 Ultimi 24h: ${last24h.length} attività\n`;
+      report += `👥 Utenti unici: ${new Set(last24h.map(l => l.userId)).size}\n\n`;
+
+      // Statistiche per azione
+      const actionStats = last24h.reduce((acc, log) => {
+        acc[log.action] = (acc[log.action] || 0) + 1;
+        return acc;
+      }, {} as Record<string, number>);
+
+      report += `📊 <b>Azioni:</b>\n`;
+      Object.entries(actionStats).forEach(([action, count]) => {
+        report += `• ${action}: ${count}\n`;
+      });
+
+      // Ultimi 10 log
+      report += `\n📝 <b>Ultimi 10 log:</b>\n`;
+      const recent = this.activityLog.slice(-10).reverse();
+      recent.forEach(log => {
+        const time = log.timestamp.toLocaleTimeString('it-IT');
+        const user = log.username ? `@${log.username}` : log.firstName || 'Unknown';
+        report += `${time} - ${user} (${log.userId}): ${log.action}\n`;
+      });
+
+      ctx.reply(report, { parse_mode: 'HTML' });
+    });
+
     // Comando /start
     this.bot.command('start', (ctx) => {
-      if (!this.securityCheck(ctx)) return;
+      this.logActivity(ctx, 'START_COMMAND');
+
+      if (!this.checkRateLimit(ctx.from!.id)) {
+        ctx.reply('⏳ Troppe richieste. Riprova tra un minuto.');
+        this.logActivity(ctx, 'RATE_LIMITED');
+        return;
+      }
 
       const message = `
 👋 Benvenuto nel GoMining NFT Analyzer Bot!
@@ -120,7 +158,7 @@ Questo bot analizza le opportunità di acquisto di NFT miner su GoMining basando
 
     // Comando /help
     this.bot.command('help', (ctx) => {
-      if (!this.securityCheck(ctx)) return;
+      this.logActivity(ctx, 'HELP_COMMAND');
 
       const message = `
 📚 Guida del Bot
@@ -146,7 +184,7 @@ Questo bot analizza le opportunità di acquisto di NFT miner su GoMining basando
 
     // Comando /set_roi
     this.bot.command('set_roi', (ctx) => {
-      if (!this.securityCheck(ctx)) return;
+      this.logActivity(ctx, 'SET_ROI_COMMAND');
 
       const args = ctx.message.text.split(' ');
       if (args.length < 2) {
@@ -161,13 +199,13 @@ Questo bot analizza le opportunità di acquisto di NFT miner su GoMining basando
       }
 
       this.userMinRoi.set(ctx.from!.id, roi);
+      this.logActivity(ctx, 'ROI_SET', `ROI: ${roi}%`);
       ctx.reply(`✅ Soglia ROI impostata a ${roi}%`);
     });
 
     // Comando /parse
     this.bot.command('parse', (ctx) => {
-      if (!this.securityCheck(ctx)) return;
-
+      this.logActivity(ctx, 'PARSE_COMMAND');
       ctx.reply(
         '📝 Incolla il testo dal marketplace di GoMining.\n\nIl bot analizzerà gli NFT e mostrerà le migliori opportunità.'
       );
@@ -181,15 +219,34 @@ Questo bot analizza le opportunità di acquisto di NFT miner su GoMining basando
           return;
         }
 
+        // Rate limiting
+        if (!this.checkRateLimit(ctx.from!.id)) {
+          ctx.reply('⏳ Troppe richieste. Riprova tra un minuto.');
+          this.logActivity(ctx, 'RATE_LIMITED');
+          return;
+        }
+
         // Gestisci i bottoni
         if (ctx.message.text === '📝 Analizza NFT') {
+          this.logActivity(ctx, 'BUTTON_ANALYZE');
           ctx.reply(
-            '📝 Incolla il testo dal marketplace di GoMining.\n\nIl bot analizzerà gli NFT e mostrerà le migliori opportunità.'
+            '📝 Incolla il testo dal marketplace di GoMining.\n\nIl bot analizzerà gli NFT e mostrerà le migliori opportunità.',
+            {
+              reply_markup: {
+                keyboard: [
+                  [{ text: '📝 Analizza NFT' }, { text: '⚙️ Imposta ROI' }],
+                  [{ text: '📚 Aiuto' }],
+                ],
+                resize_keyboard: true,
+                one_time_keyboard: false,
+              },
+            }
           );
           return;
         }
 
         if (ctx.message.text === '⚙️ Imposta ROI') {
+          this.logActivity(ctx, 'BUTTON_SET_ROI');
           ctx.reply('Scrivi il valore ROI desiderato (es: 25)', {
             reply_markup: {
               keyboard: [
@@ -200,11 +257,12 @@ Questo bot analizza le opportunità di acquisto di NFT miner su GoMining basando
               one_time_keyboard: false,
             },
           });
-          this.userMinRoi.set(ctx.from!.id, -1); // Flag per aspettare il valore
+          this.userMinRoi.set(ctx.from!.id, -1);
           return;
         }
 
         if (ctx.message.text === '📚 Aiuto') {
+          this.logActivity(ctx, 'BUTTON_HELP');
           const message = `
 📚 Guida del Bot
 
@@ -236,6 +294,7 @@ Questo bot analizza le opportunità di acquisto di NFT miner su GoMining basando
             return;
           }
           this.userMinRoi.set(ctx.from!.id, roi);
+          this.logActivity(ctx, 'ROI_SET_BUTTON', `ROI: ${roi}%`);
           ctx.reply(`✅ Soglia ROI impostata a ${roi}%`, {
             reply_markup: {
               keyboard: [
@@ -250,11 +309,13 @@ Questo bot analizza le opportunità di acquisto di NFT miner su GoMining basando
         }
 
         await ctx.reply('⏳ Analizzando i dati...');
+        this.logActivity(ctx, 'NFT_ANALYSIS_START', `Text length: ${ctx.message.text.length}`);
 
         // Parsa il testo
         const miners = parseMinersFromText(ctx.message.text);
 
         if (miners.length === 0) {
+          this.logActivity(ctx, 'NFT_ANALYSIS_FAILED', 'No NFTs found');
           ctx.reply(
             '❌ Nessun NFT trovato nel testo. Assicurati di incollare il testo corretto dal marketplace.',
             {
@@ -273,9 +334,9 @@ Questo bot analizza le opportunità di acquisto di NFT miner su GoMining basando
 
         // Calcola le metriche
         const metrics = miners.map((miner) => calculateMinerMetrics(miner));
-
-        // Filtra e ordina le opportunità
         const opportunities = filterAndSortOpportunities(metrics);
+
+        this.logActivity(ctx, 'NFT_ANALYSIS_SUCCESS', `Found ${miners.length} NFTs, ${opportunities.length} opportunities`);
 
         // Pubblica sul canale se ci sono opportunità
         if (opportunities.length > 0) {
@@ -304,6 +365,7 @@ Questo bot analizza le opportunità di acquisto di NFT miner su GoMining basando
         }
       } catch (error) {
         console.error('Error processing text:', error);
+        this.logActivity(ctx, 'ERROR', `${error}`);
         ctx.reply('❌ Errore durante l\'analisi. Riprova con un testo valido.');
       }
     });
@@ -311,6 +373,7 @@ Questo bot analizza le opportunità di acquisto di NFT miner su GoMining basando
     // Error handler
     this.bot.catch((err, ctx) => {
       console.error('Bot error:', err);
+      this.logActivity(ctx, 'BOT_ERROR', `${err}`);
       ctx.reply('❌ Si è verificato un errore. Riprova più tardi.');
     });
   }
